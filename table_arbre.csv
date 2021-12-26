@@ -1,4 +1,4 @@
-Id_arbre,id_site,Latitude,Longitude,Espece_arbre,Famille,ext:num_arbre,ext:circonference
+Id_arbre,Id_site,Latitude,Longitude,Espece_arbre,Famille,ext:num_arbre,ext:circonference
 3601640,42.5518622.972345,42.55616,2.97596,Celtis australis L. [1753],Null,1.0,67.0
 3601641,42.5518622.972345,42.55609,2.97587,Celtis australis L. [1753],Null,2.0,72.5
 3601642,42.5518622.972345,42.556,2.9758,Celtis australis L. [1753],Null,3.0,63.5
