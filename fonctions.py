@@ -9,7 +9,13 @@ import io
 import tkinter as tk
 from tkinter import filedialog
 from PIL import ImageTk
+import ssl
+import folium
+import folium.plugins
 
+
+
+ssl._create_default_https_context = ssl._create_unverified_context
 
 """
 def telecharger():
@@ -20,12 +26,11 @@ def telecharger():
         if not os.path.isdir('DonnéeBrut'):
             Raise
 """
-# import requests
+
 #Telechargement de données
 url = "https://api.tela-botanica.org/service:cel:CelWidgetExport/export?pays=FR%2CFX%2CGF%2CPF%2CTF&programme=tb_lichensgo&standard=1&debut=0&limite=20000&format=csv&colonnes=standardexport,auteur,avance,etendu,standard"
 result = requests.get(url).content
 df = pd.read_csv(io.StringIO(result.decode('utf-8')))
-#df.to_csv("DonnéeBrut/Lichen.csv")
 df_copy = df.copy()
 
 
@@ -33,8 +38,6 @@ df_copy = df.copy()
 @:param : un Dataframe
         : détermine le nombre de valeurs manquantes pour chaque colonnes
 """
-
-
 def missing_cols(df):
     '''prints out columns with its amount of missing values'''
     total = 0
@@ -149,13 +152,107 @@ table_quadrat.Id_quadrat = np.arange(1, len(table_quadrat)+1)
 
 #Ajout de l'Id quadra à la table Lichen==================================================================
 lichens_saisi["Id_quadrat"] = table_quadrat["Id_quadrat"]
-
+#Séléctionner des elements de la table Completude=================================================================
+table_site_ = table_site.drop_duplicates()
 #Séléctionner des elements de la table Completude=================================================================
 filtr_completude_saisi =  df_copy[df_copy['ext:latitude-releve'].notnull()]
 table_completude = pd.DataFrame(filtr_completude_saisi[["Id_site","Identifiant", "ext:latitude-releve","ext:longitude-releve","ext:num_arbre", "ext:rue", "Commune", "Pays"]])
 table_completude.rename(columns={'Identifiant':'Id_arbre',"ext:latitude-releve":"Latitude_site","ext:longitude-releve":"Longitude_site","ext:num_arbre":"Num_arbre","ext:rue":"Rue"},inplace=True)
+table_completude['Frequence'] = table_completude.groupby('Id_site')['Id_site'].transform('count')
+table_completude.drop_duplicates(subset='Id_site', keep="first", inplace=True)
+table_completude["Completude"] = np.where(table_completude.Frequence >= 3, True, False)
 
-    #========================Extraction des tables=============================
+
+
+
+###################################################################Cartographier les sites complet et les sites incomplet################################################
+"""
+Costum Popup
+
+"""
+
+
+def popup(val1, val2, val3, val4, val5):
+    """
+    Fonction qui rempli un template HTML avec une variable texte
+    :param valeur: objet de type str
+    :return: str code html
+    """
+    return """
+<table style="width: 200px">
+    <tr>
+        <td><strong> Commune  : </strong>{}</td>
+    </tr>
+     <tr>
+        <td><strong> Latitude_site : </strong>{}</td>
+    </tr>
+     <tr>
+        <td><strong> Longitude_site : </strong>{}</td>
+    </tr>
+    <tr>
+        <td><strong> Nombre d'arbres :  </strong>{}</td>
+    </tr>
+    <tr>
+        <td><strong> Completude : </strong>{}</td>
+    </tr>
+</table>
+""".format(val1, val2, val3, val4, val5)
+
+
+"""
+Partie carto
+
+"""
+fond_carte = r'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+
+loc = 'Cartographie des sites complets et incomplets du programme Lichens GO ! '
+title_html = '''
+                <h3 align="center" style="font-size:16px"><b>{}</b></h3>
+
+                 '''.format(loc)
+
+map_france = folium.Map(location=[48.711, 6.680],
+                        zoom_start=5,
+                        tiles=fond_carte, control_scale=True, attr="basemap.cartocdn", name='Fond de Carte')
+
+
+fg1 = folium.FeatureGroup(name='Sites Complets', show=False).add_to(map_france)
+fg2 = folium.FeatureGroup(name='Sites Incomplets', show=False).add_to(map_france)
+
+site_complet = folium.plugins.MarkerCluster().add_to(fg1)
+site_incomplet = folium.plugins.MarkerCluster().add_to(fg2)
+
+
+folium.GeoJson('https://france-geojson.gregoiredavid.fr/repo/regions.geojson',
+               name='Region-grand-est'
+               ).add_to(map_france)
+
+for i, row in table_completude.iterrows():
+    valeurs_popup = popup(row["Commune"], row["Latitude_site"],
+                          row["Longitude_site"], row["Frequence"],
+                          row["Completude"])
+    if row["Frequence"] >= 3:
+        folium.Marker(location=[row['Latitude_site'], row['Longitude_site']],
+                      popup=valeurs_popup,
+                      icon=folium.Icon(color='green', icon='info-sign'),
+                      tooltip="Cliquez Ici").add_to(site_complet)
+
+    elif row["Frequence"] < 3:
+        folium.Marker(location=[row['Latitude_site'], row['Longitude_site']],
+                      popup=valeurs_popup,
+                      icon=folium.Icon(color='green', icon='info-sign'),
+                      tooltip="Cliquez Ici").add_to(site_incomplet)
+
+map_france.add_child(fg1)
+map_france.add_child(fg2)
+
+map_france.get_root().html.add_child(folium.Element(title_html))
+folium.TileLayer('Stamen Terrain').add_to(map_france)
+folium.TileLayer('Openstreetmap').add_to(map_france)
+folium.LayerControl(position='topright', collapsed=True, autoZIndex=True).add_to(map_france)
+folium.plugins.Fullscreen().add_to(map_france)
+
+#========================Extraction des tables=============================
 """
 arbre_saisi.to_csv("table_arbre.csv", index=False)
 lichens_saisi.to_csv("table_lichens.csv",index=False)
@@ -172,8 +269,7 @@ canvas1.pack()
 
 def exportCSV():
     global df
-
-    export_file_path = filedialog.asksaveasfilename(defaultextension='.csv', initialfile='clean_data', title='Export Données Lichens Go !')
+    export_file_path = filedialog.asksaveasfilename(defaultextension='.csv', initialfile='clean_data', title='Export Données Lichens Go corrigé !')
     df_copy.to_csv(export_file_path, index=False, header=True)
 
     export_file_path = filedialog.asksaveasfilename(defaultextension='.csv', initialfile='table_arbre_saisi', title='Export Données Lichens Go !')
@@ -190,6 +286,10 @@ def exportCSV():
 
     export_file_path = filedialog.asksaveasfilename(defaultextension='.csv', initialfile='table_site', title='Export Données Lichens Go !')
     table_site.to_csv(export_file_path, index=False, header=True)
+
+    export_file_path = filedialog.asksaveasfilename(defaultextension='.html', initialfile='carte_des_sites_complets_et_incomplets', title='Export Données Lichens Go !')
+    map_france.save(export_file_path)
+
 
 
 saveAsButton_CSV = tk.Button(text='Exporter les tables dans un dossier',  command=exportCSV, bg='green', fg='white',
